@@ -1,3 +1,4 @@
+# This Python file uses the following encoding: utf-8
 '''
 Created on Feb 6, 2012
 
@@ -12,6 +13,27 @@ import struct
 import time
 import thread
 import sys
+import re
+import BeautifulSoup as bs
+import urllib2
+import unicodedata
+
+def strip_accents(s): # Credit to oefe on stackoverflow.com
+  if not s: return False
+  return ''.join((c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn'))
+
+def getYoutubeLink(link):
+    m = re.search(r"v=([\w-]{11,11})",link)
+    return "http://www.youtube.com/watch?v=%s" %m.group(1)
+
+def getYoutubeTitle(message):
+    link = getYoutubeLink(message)
+    response = urllib2.urlopen(link)
+    page = response.read()
+    soup = bs.BeautifulSoup(page)
+    title = str(soup.find("span", {"id": "eow-title"}))
+    m = re.search(' title=["\'](.+)["\']>', title)
+    return strip_accents(unicode(m.group(1)))
 
 class mumbleConnection():
     '''
@@ -23,13 +45,14 @@ class mumbleConnection():
     host = None
     port = None
     password = None
+    tokens = None
     sock = None
     session = None
     channel = None
     _pingTotal = 1   
     running = False
     _textCallbacks = []
-
+    masterid = None
 
     _messageLookupMessage = {Mumble_pb2.Version:0, Mumble_pb2.UDPTunnel:1, Mumble_pb2.Authenticate:2, Mumble_pb2.Ping:3, Mumble_pb2.Reject:4, Mumble_pb2.ServerSync:5,
         Mumble_pb2.ChannelRemove:6, Mumble_pb2.ChannelState:7, Mumble_pb2.UserRemove:8, Mumble_pb2.UserState:9, Mumble_pb2.BanList:10, Mumble_pb2.TextMessage:11, Mumble_pb2.PermissionDenied:12,
@@ -38,7 +61,7 @@ class mumbleConnection():
     
     _messageLookupNumber = {}
     
-    def __init__(self, host, password, port, nickname, channel):
+    def __init__(self, host, password, port, nickname, channel, tokens, mastername):
         """
         Creates a mumble Connection but doesn't open it yet.
         
@@ -56,7 +79,9 @@ class mumbleConnection():
         self.port = port
         self.nickname = nickname    
         self.channel = channel
-        
+        self.tokens = tokens
+        self.mastername = mastername
+
         for i in self._messageLookupMessage.keys():
             self._messageLookupNumber[self._messageLookupMessage[i]] = i
 
@@ -134,6 +159,7 @@ class mumbleConnection():
             pbMess = Mumble_pb2.Authenticate()
             pbMess.password = self.password
             pbMess.username = self.nickname
+            pbMess.tokens.append(self.tokens[0])
             if self.password != None:
                 pbMess.password = self.password
             celtversion = pbMess.celt_versions.append(-2147483637)
@@ -145,7 +171,7 @@ class mumbleConnection():
                 return
             else:
                 self.running = True
-                thread.start_new_thread(self._pingLoop, ())  
+                thread.start_new_thread(self._pingLoop, ()) 
                 thread.start_new_thread(self._mainLoop, ())
                 
     def sendTextMessage(self, Text):
@@ -183,36 +209,49 @@ class mumbleConnection():
                 self.session = message.session 
                 self._joinChannel()
 
-            if(msgType == 1):
-                print(stringMessage)
-                sys.stdout.write(stringMessage[4:])
             if(msgType == 7):
                 message = self._parseMessage(msgType, stringMessage)
-                print("Channel " + message.name + ": " + str(message.channel_id))
+                #print("Channel " + message.name + ": " + str(message.channel_id))
                 if(message.name == self.channel):
                     self.channel = message.channel_id
+
+            if(msgType == 9):
+                message = self._parseMessage(msgType, stringMessage)
+                if message.name == self.mastername:
+                    self.masterid = message.session
+                    self.channel = message.channel_id
+                if message.actor == self.masterid and message.channel_id != self.channel and message.channel_id:
+                    self.channel = message.channel_id
+                    self._joinChannel()
+
             if(msgType == 11):
                 message = self._parseMessage(msgType, stringMessage)
+                print message
                 for call in self._textCallbacks:
-                    if(call[0] == message.message):
-                        self.sendTextMessage(call[1]()) 
-    
+                    if(call[0].search(message.message) and message.channel_id):
+                        try:
+                            youtubetitle = getYoutubeTitle(message.message)
+                        except:
+                            youtubetitle = "Ey, don't you try fool me."
+                        print youtubetitle
+                        self.sendTextMessage("<b>" + youtubetitle + "</b>")
 
     def closeConnection(self):
         """
         Closes the connection
         """
+        print "asdf"
         self.running = False
 
     def _sendPing(self):
         pbMess = Mumble_pb2.Ping()
-        pbMess.timestamp = (self.pingTotal * 5000000)
+        pbMess.timestamp = (self._pingTotal * 5000000)
         pbMess.good = 0
         pbMess.late = 0
         pbMess.lost = 0
         pbMess.resync = 0
         pbMess.udp_packets = 0
-        pbMess.tcp_packets = self.pingTotal
+        pbMess.tcp_packets = self._pingTotal
         pbMess.udp_ping_avg = 0
         pbMess.udp_ping_var = 0.0
         pbMess.tcp_ping_avg = 50
