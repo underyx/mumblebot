@@ -17,23 +17,24 @@ import re
 import BeautifulSoup as bs
 import urllib2
 import unicodedata
+import gdata.youtube
+import gdata.youtube.service
+
+yt_service = gdata.youtube.service.YouTubeService()
 
 def strip_accents(s): # Credit to oefe on stackoverflow.com
   if not s: return False
   return ''.join((c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn'))
 
 def getYoutubeLink(link):
-    m = re.search(r"v=([\w-]{11,11})",link)
-    return "http://www.youtube.com/watch?v=%s" %m.group(1)
+    m = re.search(r"v=([\w-]{11})",link)
+    return m.group(1)
 
 def getYoutubeTitle(message):
-    link = getYoutubeLink(message)
-    response = urllib2.urlopen(link)
-    page = response.read()
-    soup = bs.BeautifulSoup(page)
-    title = str(soup.find("span", {"id": "eow-title"}))
-    m = re.search(' title=["\'](.+)["\']>', title)
-    return strip_accents(unicode(m.group(1)))
+    entry = yt_service.GetYouTubeVideoEntry(video_id=getYoutubeLink(message))
+    title = entry.media.title.text
+    m, s = divmod(int(entry.media.duration.seconds), 60)
+    return strip_accents(unicode(title)), unicode("%d:%02d" %(m, s))
 
 class mumbleConnection():
     '''
@@ -230,11 +231,11 @@ class mumbleConnection():
                 for call in self._textCallbacks:
                     if(call[0].search(message.message) and message.channel_id):
                         try:
-                            youtubetitle = getYoutubeTitle(message.message)
+                            youtubedata = getYoutubeTitle(message.message)
+                            self.sendTextMessage("<b>" + youtubedata[0] + " [" + youtubedata[1] + "]</b>")
                         except:
-                            youtubetitle = "Ey, don't you try fool me."
-                        print youtubetitle
-                        self.sendTextMessage("<b>" + youtubetitle + "</b>")
+                            self.sendTextMessage("Ey, don't you try fool me.")
+                        
 
     def closeConnection(self):
         """
