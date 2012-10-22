@@ -160,7 +160,7 @@ class mumbleConnection():
             pbMess = Mumble_pb2.Authenticate()
             pbMess.password = self.password
             pbMess.username = self.nickname
-            pbMess.tokens.append(self.tokens[0])
+            [pbMess.tokens.append(token) for token in self.tokens]
             if self.password != None:
                 pbMess.password = self.password
             celtversion = pbMess.celt_versions.append(-2147483637)
