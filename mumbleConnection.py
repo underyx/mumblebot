@@ -19,22 +19,52 @@ import urllib2
 import unicodedata
 import gdata.youtube
 import gdata.youtube.service
+import praw
+import fbconsole
+import PIL
+from PIL import Image
+import base64
+import cStringIO
+from config import *
+
 
 yt_service = gdata.youtube.service.YouTubeService()
+r = praw.Reddit(user_agent='mumblebot by /u/underyx')
+r.login(reddituser, redditpass)
+fbconsole.ACCESS_TOKEN = fbtoken
 
 def strip_accents(s): # Credit to oefe on stackoverflow.com
   if not s: return False
   return ''.join((c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn'))
 
-def getYoutubeLink(link):
-    m = re.search(r"v=([\w-]{11})",link)
-    return m.group(1)
-
-def getYoutubeTitle(message):
-    entry = yt_service.GetYouTubeVideoEntry(video_id=getYoutubeLink(message))
+def getYoutubeTitle(videoid):
+    entry = yt_service.GetYouTubeVideoEntry(video_id=videoid)
     title = entry.media.title.text
     m, s = divmod(int(entry.media.duration.seconds), 60)
     return strip_accents(unicode(title)), unicode("%d:%02d" %(m, s))
+
+def getRedditTitle(link):
+    try:
+        print link
+        print r.info(url=link)
+        print list(r.info(url=link))
+        result = next(r.info(url=link))
+    except StopIteration:
+        return None
+    cid = result.content_id[3:]
+    title = str(r.get_submission(submission_id=cid)).split(" :: ",1)[1]
+    shortlink = "http://redd.it/" + cid
+    return title, shortlink
+
+def getFBTitle(photoid):
+    try:
+        data = fbconsole.get("/%s" %photoid)
+    except:
+        return None
+    try:
+        return data["name"], data["from"]["name"]
+    except:
+        return "Unnamed picture", data["from"]["name"]
 
 class mumbleConnection():
     '''
@@ -230,12 +260,46 @@ class mumbleConnection():
                 print message
                 for call in self._textCallbacks:
                     if(call[0].search(message.message) and message.channel_id):
+                        msg = message.message
+                        links = re.findall(r"<a href=\"((?:http|https)://\S+)\"", msg)
                         try:
-                            youtubedata = getYoutubeTitle(message.message)
-                            self.sendTextMessage("<b>" + youtubedata[0] + " [" + youtubedata[1] + "]</b>")
+                            for link in links:
+                                print link
+                                image = re.search(r"\.(png|jpg)", link)
+                                message = ""
+
+                                yt = re.search(r"v=([\w-]{11})", link)
+                                fb = re.search(r"(facebook|fbcdn)", link)
+
+                                if yt:
+                                    try:
+                                        youtubedata = getYoutubeTitle(yt.group(1))
+                                        message += "<br /><b> %s [%s]</b>" %youtubedata
+                                    except:
+                                        message += "<br />You ain't foolin' this dog, mister."
+                                elif fb:
+                                    photoid = re.search(r"([\d]{15,17})", link)
+                                    print photoid
+                                    fbdata = getFBTitle(photoid.group(1))
+                                    if fbdata:
+                                        message += "<br /><b>%s</b> - posted by <b>%s</b>" %fbdata
+                                else:
+                                    redditdata = getRedditTitle(link)
+                                    if redditdata:
+                                        message += "<br /><b>%s</b> - <a href=\"%s\">link to reddit submission<\a>" %redditdata
+                                if image:
+                                    file = cStringIO.StringIO(urllib2.urlopen(link).read())
+                                    img = Image.open(file)
+                                    basewidth = 300
+                                    wpercent = (basewidth / float(img.size[0]))
+                                    hsize = int((float(img.size[1]) * float(wpercent)))
+                                    img = img.resize((basewidth, hsize), PIL.Image.ANTIALIAS)
+                                    img.save('tmp.jpg', 'JPEG')
+                                    outimage = 'tmp.jpg'
+                                    message += "<br /><img src=\"data:image/jpeg;base64, %s\"/>" %base64.encodestring(open(outimage,"rb").read())
+                                self.sendTextMessage(message)
                         except:
-                            self.sendTextMessage("Ey, don't you try fool me.")
-                        
+                            pass
 
     def closeConnection(self):
         """
