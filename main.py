@@ -10,7 +10,7 @@ import mumbleConnection
 import thread
 import time
 import re
-import win32api,win32process,win32con
+import win32api, win32process, win32con
 from config import *
 
 try:
@@ -34,4 +34,4 @@ if __name__ == '__main__':
     asdf.addChatCallback(re.compile("."), lol)
     # this infinity loop is there for structural purposes, do not remove it!
     while asdf.running:
-        pass
+        time.sleep(10)
