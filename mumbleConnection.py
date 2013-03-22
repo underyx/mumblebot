@@ -46,7 +46,7 @@ def strip_accents(s): # Credit to oefe on stackoverflow.com
   if not s: return False
   return ''.join((c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn'))
 
-def getYoutubeTitle(videoid):
+def getYoutubeData(videoid):
     entry = yt_service.GetYouTubeVideoEntry(video_id=videoid)
     title = entry.media.title.text
     m, s = divmod(int(entry.media.duration.seconds), 60)
@@ -78,6 +78,15 @@ def getFBTitle(photoid):
         return "Unnamed picture", data["from"]["name"], data["link"]
         print "FB error #2"
 
+def parseQueueLink(link):
+    ytid = re.search("v=([\w-]{11})", link)
+    if ytid:
+        result = getYoutubeData(ytid.group(1))
+        if not result:
+            return ("Song name not found", "0:00")
+        else:
+            return result
+
 def telnetVLC(command):
     try:
         tn = telnetlib.Telnet("localhost", 4212)
@@ -108,10 +117,28 @@ class mumbleConnection():
     _textCallbacks = []
     masterid = None
 
-    _messageLookupMessage = {Mumble_pb2.Version:0, Mumble_pb2.UDPTunnel:1, Mumble_pb2.Authenticate:2, Mumble_pb2.Ping:3, Mumble_pb2.Reject:4, Mumble_pb2.ServerSync:5,
-        Mumble_pb2.ChannelRemove:6, Mumble_pb2.ChannelState:7, Mumble_pb2.UserRemove:8, Mumble_pb2.UserState:9, Mumble_pb2.BanList:10, Mumble_pb2.TextMessage:11, Mumble_pb2.PermissionDenied:12,
-        Mumble_pb2.ACL:13, Mumble_pb2.QueryUsers:14, Mumble_pb2.CryptSetup:15, Mumble_pb2.ContextActionAdd:16, Mumble_pb2.ContextAction:17, Mumble_pb2.UserList:18, Mumble_pb2.VoiceTarget:19,
-        Mumble_pb2.PermissionQuery:20, Mumble_pb2.CodecVersion:21}
+    _messageLookupMessage = {Mumble_pb2.Version: 0,
+                             Mumble_pb2.UDPTunnel: 1,
+                             Mumble_pb2.Authenticate: 2,
+                             Mumble_pb2.Ping: 3,
+                             Mumble_pb2.Reject: 4,
+                             Mumble_pb2.ServerSync: 5,
+                             Mumble_pb2.ChannelRemove: 6,
+                             Mumble_pb2.ChannelState: 7,
+                             Mumble_pb2.UserRemove: 8,
+                             Mumble_pb2.UserState: 9,
+                             Mumble_pb2.BanList: 10,
+                             Mumble_pb2.TextMessage: 11,
+                             Mumble_pb2.PermissionDenied: 12,
+                             Mumble_pb2.ACL: 13,
+                             Mumble_pb2.QueryUsers: 14,
+                             Mumble_pb2.CryptSetup: 15,
+                             Mumble_pb2.ContextActionAdd: 16,
+                             Mumble_pb2.ContextAction: 17,
+                             Mumble_pb2.UserList: 18,
+                             Mumble_pb2.VoiceTarget: 19,
+                             Mumble_pb2.PermissionQuery: 20,
+                             Mumble_pb2.CodecVersion: 21}
 
     _messageLookupNumber = {}
 
@@ -251,23 +278,14 @@ class mumbleConnection():
     def _readPacket(self):
         channels = {}
         meta = self._readTotally(6)
-        """
-        if c == ord("m"):
-            self.channel = raw_input()
-            if not self.channel:
-                followmode = 1
-            else:
-                followmode = 0
-                self.channel = channels[self.channel]
-                self._joinChannel()
-        """
-        if(meta != None):
+
+        if meta:
             msgType, length = struct.unpack(">HI", meta)
             stringMessage = self._readTotally(length)
             #print ("Message of type "+str(msgType)+" received!")
             #print (stringMessage)
 
-            if(not self.session and msgType == 5):
+            if not self.session and msgType == 5:
                 message = self._parseMessage(msgType, stringMessage)
                 self.session = message.session
                 self._joinChannel()
@@ -321,7 +339,7 @@ class mumbleConnection():
 
                         if yt:
                             try:
-                                youtubedata = getYoutubeTitle(yt.group(1))
+                                youtubedata = getYoutubeData(yt.group(1))
                                 message += "<br /><b> %s [%s]</b>" % youtubedata
                                 if "play" in msg:
                                     info = subprocess.STARTUPINFO()
@@ -364,13 +382,16 @@ class mumbleConnection():
                     telnetVLC("prev")
                 if msg == "info":
                     print type(telnetVLC("playlist"))
-                    playlist = re.findall("^\|   \d+ - (.+?) ?\((\d\d:\d\d:\d\d)\)?(?: \[played \d* times?])?\r",  telnetVLC("playlist"), re.MULTILINE)
-                    i = 1
+                    playlist = re.findall("^\|   \d+ - (?:(.+?) ?\((\d\d:\d\d:\d\d)\)?(?: \[played \d* times?])?|(https?://.+))\r",  telnetVLC("playlist"), re.MULTILINE)
+                    i = 0
                     playlistmsg = "<br />"
-                    for title, length in playlist:
-                        length = "%d:%02d" % divmod(int(length[0:2]) * 3600 + int(length[3:5]) * 60 + int(length[6:8]), 60)
-                        playlistmsg += "#%s <b>%s - [%s]</b><br />" % (i, title, length)
+                    for title, length, link in playlist:
                         i += 1
+                        if title:
+                            length = unicode("%d:%02d" % divmod(int(length[0:2]) * 3600 + int(length[3:5]) * 60 + int(length[6:8]), 60))
+                        elif link:
+                            title, length = parseQueueLink(link)
+                        playlistmsg += "#%s <b>%s - [%s]</b><br />" % (i, title, length)
                     self.sendTextMessage(playlistmsg)
                 if msg.startswith("seek"):
                     telnetVLC("seek %s" % re.search("\d+", msg).group() + "%")
@@ -380,7 +401,7 @@ class mumbleConnection():
                     try:
                         params = {"vq": msg[5:], "racy": "include", "orderby": "relevance", "alt": "json", "fields": "entry(media:group(media:player))"}
                         ytid = requests.get("http://gdata.youtube.com/feeds/api/videos", params=params).json()["feed"]["entry"][0]["media$group"]["media$player"][0]["url"][31:42]
-                        youtubedata = getYoutubeTitle(ytid)
+                        youtubedata = getYoutubeData(ytid)
                         print youtubedata
                         self.sendTextMessage("<br /><b> <a href='http://www.youtube.com/watch?v=%s'>%s</a> [%s]</b>" % (ytid, youtubedata[0], youtubedata[1]))
                         info = subprocess.STARTUPINFO()
@@ -391,13 +412,6 @@ class mumbleConnection():
                     except:
                         self.sendTextMessage("<br /><b>No results found or some other random error I dunno.</b>")
                         pass
-
-    def closeConnection(self):
-        """
-        Closes the connection
-        """
-        print "asdf"
-        self.running = False
 
     def _sendPing(self):
         pbMess = Mumble_pb2.Ping()
