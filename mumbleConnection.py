@@ -74,18 +74,15 @@ def getFBTitle(photoid):
         return None
     try:
         return data["name"], data["from"]["name"], data["link"]
-    except:
+    except Exception:
         return "Unnamed picture", data["from"]["name"], data["link"]
         print "FB error #2"
 
 def parseQueueLink(link):
     ytid = re.search("v=([\w-]{11})", link)
     if ytid:
-        result = getYoutubeData(ytid.group(1))
-        if not result:
-            return ("Song name not found", "0:00")
-        else:
-            return result
+        result = getYoutubeData(ytid.group(1)) or "Song name not found", "0:00"
+        return result
 
 def telnetVLC(command):
     try:
@@ -95,7 +92,7 @@ def telnetVLC(command):
         tn.read_until(">")
         tn.write(command + "\n")
         return tn.read_until(">")
-    except:
+    except Exception:
         pass
 
 class mumbleConnection():
@@ -117,28 +114,33 @@ class mumbleConnection():
     _textCallbacks = []
     masterid = None
 
-    _messageLookupMessage = {Mumble_pb2.Version: 0,
-                             Mumble_pb2.UDPTunnel: 1,
-                             Mumble_pb2.Authenticate: 2,
-                             Mumble_pb2.Ping: 3,
-                             Mumble_pb2.Reject: 4,
-                             Mumble_pb2.ServerSync: 5,
-                             Mumble_pb2.ChannelRemove: 6,
-                             Mumble_pb2.ChannelState: 7,
-                             Mumble_pb2.UserRemove: 8,
-                             Mumble_pb2.UserState: 9,
-                             Mumble_pb2.BanList: 10,
-                             Mumble_pb2.TextMessage: 11,
-                             Mumble_pb2.PermissionDenied: 12,
-                             Mumble_pb2.ACL: 13,
-                             Mumble_pb2.QueryUsers: 14,
-                             Mumble_pb2.CryptSetup: 15,
-                             Mumble_pb2.ContextActionAdd: 16,
-                             Mumble_pb2.ContextAction: 17,
-                             Mumble_pb2.UserList: 18,
-                             Mumble_pb2.VoiceTarget: 19,
-                             Mumble_pb2.PermissionQuery: 20,
-                             Mumble_pb2.CodecVersion: 21}
+    _messageLookupMessage = {
+        Mumble_pb2.Version: 0,
+        Mumble_pb2.UDPTunnel: 1,
+        Mumble_pb2.Authenticate: 2,
+        Mumble_pb2.Ping: 3,
+        Mumble_pb2.Reject: 4,
+        Mumble_pb2.ServerSync: 5,
+
+        Mumble_pb2.ChannelRemove: 6,
+        Mumble_pb2.ChannelState: 7,
+        Mumble_pb2.UserRemove: 8,
+        Mumble_pb2.UserState: 9,
+        Mumble_pb2.BanList: 10,
+        Mumble_pb2.TextMessage: 11,
+        Mumble_pb2.PermissionDenied: 12,
+
+        Mumble_pb2.ACL: 13,
+        Mumble_pb2.QueryUsers: 14,
+        Mumble_pb2.CryptSetup: 15,
+        Mumble_pb2.ContextActionAdd: 16,
+        Mumble_pb2.ContextAction: 17,
+        Mumble_pb2.UserList: 18,
+        Mumble_pb2.VoiceTarget: 19,
+
+        Mumble_pb2.PermissionQuery: 20,
+        Mumble_pb2.CodecVersion: 21
+    }
 
     _messageLookupNumber = {}
 
@@ -278,7 +280,6 @@ class mumbleConnection():
     def _readPacket(self):
         channels = {}
         meta = self._readTotally(6)
-
         if meta:
             msgType, length = struct.unpack(">HI", meta)
             stringMessage = self._readTotally(length)
@@ -311,16 +312,84 @@ class mumbleConnection():
             if(msgType == 11):
                 message = self._parseMessage(msgType, stringMessage)
                 msg = message.message
-                links = re.findall(r"<a href=\"((?:http|https)://\S+)\"", msg)
-                try:
+                if msg[:5] == "play ":
+                    msg_data = msg[5:].split(",")  # Split in case CSV
+                    for item in msg_data:
+                        if "http" in item:
+                            link = re.search(r"<a href=\"((?:http|https)://\S+)\"", item).group()
+                            yt = re.search(r"v=([\w-]{11})", link)
+                            try:
+                                    if yt:
+                                        try:
+                                            youtubedata = getYoutubeData(yt.group(1))
+                                            message += "<br /><b> %s [%s]</b>" % youtubedata
+                                            info = subprocess.STARTUPINFO()
+                                            info.dwFlags = 1
+                                            info.wShowWindow = 0
+                                            subprocess.Popen(["C:\Program Files (x86)\VideoLAN\VLC\\vlc.exe", "--intf", "telnet", "--vout", "dummy", "--playlist-enqueue", "http://www.youtube.com/watch?v=%s" % yt.group(1)], startupinfo=info)
+                                            telnetVLC("play")
+                                        except Exception:
+                                            message += "<br />You ain't foolin' this dog, mister."
+                                    elif "mp3" in item:
+                                        print re.search('href="(.+)"', item).group()
+                                        info = subprocess.STARTUPINFO()
+                                        info.dwFlags = 1
+                                        info.wShowWindow = 0
+                                        subprocess.Popen(["C:\Program Files (x86)\VideoLAN\VLC\\vlc.exe", "--intf", "telnet", "--vout", "dummy", "--playlist-enqueue", "%s" % re.search('href="(.+)"', item).group(1)], startupinfo=info)
+                                        telnetVLC("play")
+                                    self.sendTextMessage(message)
+                            except Exception:
+                                self.sendTextMessage(message)
+                        else:
+                            try:
+                                params = {"vq": item, "racy": "include", "orderby": "relevance", "alt": "json", "fields": "entry(media:group(media:player))"}
+                                ytid = requests.get("http://gdata.youtube.com/feeds/api/videos", params=params).json()["feed"]["entry"][0]["media$group"]["media$player"][0]["url"][31:42]
+                                youtubedata = getYoutubeData(ytid)
+                                print youtubedata
+                                self.sendTextMessage("<br /><b> <a href='http://www.youtube.com/watch?v=%s'>%s</a> [%s]</b>" % (ytid, youtubedata[0], youtubedata[1]))
+                                info = subprocess.STARTUPINFO()
+                                info.dwFlags = 1
+                                info.wShowWindow = 0
+                                subprocess.Popen(["C:\Program Files (x86)\VideoLAN\VLC\\vlc.exe", "--intf", "telnet", "--vout", "dummy", "--playlist-enqueue", "http://www.youtube.com/watch?v=%s" % ytid], startupinfo=info)
+                                telnetVLC("play")
+                            except Exception:
+                                self.sendTextMessage("<br /><b>No results found or some other random error I dunno.</b>")
+
+                elif msg == "stop":
+                    os.system("taskkill /F /IM vlc.exe")
+
+                elif msg == "next":
+                    telnetVLC("next")
+
+                elif msg == "prev":
+                    telnetVLC("prev")
+
+                elif msg == "info":
+                    print type(telnetVLC("playlist"))
+                    playlist = re.findall("^\|   \d+ - (?:(.+?) ?\((\d\d:\d\d:\d\d)\)?(?: \[played \d* times?])?|(https?://.+))\r",  telnetVLC("playlist"), re.MULTILINE)
+                    i = 0
+                    playlistmsg = "<br />"
+                    for title, length, link in playlist:
+                        i += 1
+                        if title:
+                            length = unicode("%d:%02d" % divmod(int(length[0:2]) * 3600 + int(length[3:5]) * 60 + int(length[6:8]), 60))
+                        elif link:
+                            title, length = parseQueueLink(link)
+                        playlistmsg += "#%s <b>%s - [%s]</b><br />" % (i, title, length)
+
+                    self.sendTextMessage(playlistmsg)
+
+                elif msg.startswith("seek"):
+                    telnetVLC("seek %s" % re.search("\d+", msg).group() + "%")
+
+                elif msg.startswith("vol"):
+                    telnetVLC("volume %s" % int(round(float(re.search("\d+", msg).group())*2.56)))
+
+                else:
+                    links = re.findall(r"<a href=\"((?:http|https)://\S+)\"", item)
                     for link in links:
                         print link
                         link = HTMLParser.HTMLParser().unescape(link)
-                        message = ""
-
-                        yt = re.search(r"v=([\w-]{11})", link)
-                        fb = re.search(r"(facebook|fbcdn)", link)
-
                         try:
                             file = cStringIO.StringIO(urllib2.urlopen(link).read())
                             img = Image.open(file)
@@ -334,84 +403,8 @@ class mumbleConnection():
                             outimage = 'tmp.jpg'
                             self.sendTextMessage("<br /><img src=\"data:image/jpeg;base64, %s\"/>" % base64.encodestring(open(outimage, "rb").read()))
                             os.remove(outimage)
-                        except:
+                        except Exception:
                             pass
-
-                        if yt:
-                            try:
-                                youtubedata = getYoutubeData(yt.group(1))
-                                message += "<br /><b> %s [%s]</b>" % youtubedata
-                                if "play" in msg:
-                                    info = subprocess.STARTUPINFO()
-                                    info.dwFlags = 1
-                                    info.wShowWindow = 0
-                                    subprocess.Popen(["C:\Program Files (x86)\VideoLAN\VLC\\vlc.exe", "--intf", "telnet", "--vout", "dummy", "--playlist-enqueue", "http://www.youtube.com/watch?v=%s" % yt.group(1)], startupinfo=info)
-                                    telnetVLC("play")
-                            except:
-                                message += "<br />You ain't foolin' this dog, mister."
-                        elif fb:
-                            photoid = re.search(r"\d+_(\d+)_\d+", link)
-                            print photoid
-                            fbdata = getFBTitle(photoid.group(1))
-                            if fbdata:
-                                message += "<br /><b>%s</b> - posted by <b>%s</b> - <a href=\"%s\">link to image on facebook</a>" % fbdata
-                        elif "mp3" in msg and "play" in msg:
-                            print re.search('href="(.+)"', msg).group()
-                            info = subprocess.STARTUPINFO()
-                            info.dwFlags = 1
-                            info.wShowWindow = 0
-                            subprocess.Popen(["C:\Program Files (x86)\VideoLAN\VLC\\vlc.exe", "--intf", "telnet", "--vout", "dummy", "--playlist-enqueue", "%s" % re.search('href="(.+)"', msg).group(1)], startupinfo=info)
-                            telnetVLC("play")
-                        else:
-                            try:
-                                redditdata = getRedditTitle(link)
-                                print redditdata
-                                if redditdata:
-                                    message += "<br /><b>%s</b> - <a href=\"%s\">link to reddit submission</a>" % redditdata
-                            except:
-                                pass
-                        self.sendTextMessage(message)
-                except:
-                    self.sendTextMessage(message)
-                    pass
-                if msg == "stop":
-                    os.system("taskkill /F /IM vlc.exe")
-                if msg == "next":
-                    telnetVLC("next")
-                if msg == "prev":
-                    telnetVLC("prev")
-                if msg == "info":
-                    print type(telnetVLC("playlist"))
-                    playlist = re.findall("^\|   \d+ - (?:(.+?) ?\((\d\d:\d\d:\d\d)\)?(?: \[played \d* times?])?|(https?://.+))\r",  telnetVLC("playlist"), re.MULTILINE)
-                    i = 0
-                    playlistmsg = "<br />"
-                    for title, length, link in playlist:
-                        i += 1
-                        if title:
-                            length = unicode("%d:%02d" % divmod(int(length[0:2]) * 3600 + int(length[3:5]) * 60 + int(length[6:8]), 60))
-                        elif link:
-                            title, length = parseQueueLink(link)
-                        playlistmsg += "#%s <b>%s - [%s]</b><br />" % (i, title, length)
-                    self.sendTextMessage(playlistmsg)
-                if msg.startswith("seek"):
-                    telnetVLC("seek %s" % re.search("\d+", msg).group() + "%")
-                if msg.startswith("vol"):
-                    telnetVLC("volume %s" % int(round(float(re.search("\d+", msg).group())*2.56)))
-                if msg[:4] == "play" and "http" not in msg:
-                    try:
-                        params = {"vq": msg[5:], "racy": "include", "orderby": "relevance", "alt": "json", "fields": "entry(media:group(media:player))"}
-                        ytid = requests.get("http://gdata.youtube.com/feeds/api/videos", params=params).json()["feed"]["entry"][0]["media$group"]["media$player"][0]["url"][31:42]
-                        youtubedata = getYoutubeData(ytid)
-                        print youtubedata
-                        self.sendTextMessage("<br /><b> <a href='http://www.youtube.com/watch?v=%s'>%s</a> [%s]</b>" % (ytid, youtubedata[0], youtubedata[1]))
-                        info = subprocess.STARTUPINFO()
-                        info.dwFlags = 1
-                        info.wShowWindow = 0
-                        subprocess.Popen(["C:\Program Files (x86)\VideoLAN\VLC\\vlc.exe", "--intf", "telnet", "--vout", "dummy", "--playlist-enqueue", "http://www.youtube.com/watch?v=%s" % ytid], startupinfo=info)
-                        telnetVLC("play")
-                    except:
-                        self.sendTextMessage("<br /><b>No results found or some other random error I dunno.</b>")
-                        pass
 
     def _sendPing(self):
         pbMess = Mumble_pb2.Ping()
