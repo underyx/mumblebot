@@ -115,31 +115,31 @@ class mumbleConnection():
     masterid = None
 
     _messageLookupMessage = {
-        Mumble_pb2.Version:0,
-        Mumble_pb2.UDPTunnel:1,
-        Mumble_pb2.Authenticate:2,
-        Mumble_pb2.Ping:3,
-        Mumble_pb2.Reject:4,
-        Mumble_pb2.ServerSync:5,
+        Mumble_pb2.Version: 0,
+        Mumble_pb2.UDPTunnel: 1,
+        Mumble_pb2.Authenticate: 2,
+        Mumble_pb2.Ping: 3,
+        Mumble_pb2.Reject: 4,
+        Mumble_pb2.ServerSync: 5,
 
-        Mumble_pb2.ChannelRemove:6,
-        Mumble_pb2.ChannelState:7,
-        Mumble_pb2.UserRemove:8,
-        Mumble_pb2.UserState:9,
-        Mumble_pb2.BanList:10,
-        Mumble_pb2.TextMessage:11,
-        Mumble_pb2.PermissionDenied:12,
+        Mumble_pb2.ChannelRemove: 6,
+        Mumble_pb2.ChannelState: 7,
+        Mumble_pb2.UserRemove: 8,
+        Mumble_pb2.UserState: 9,
+        Mumble_pb2.BanList: 10,
+        Mumble_pb2.TextMessage: 11,
+        Mumble_pb2.PermissionDenied: 12,
 
-        Mumble_pb2.ACL:13,
-        Mumble_pb2.QueryUsers:14,
-        Mumble_pb2.CryptSetup:15,
-        Mumble_pb2.ContextActionAdd:16,
-        Mumble_pb2.ContextAction:17,
-        Mumble_pb2.UserList:18,
-        Mumble_pb2.VoiceTarget:19,
+        Mumble_pb2.ACL: 13,
+        Mumble_pb2.QueryUsers: 14,
+        Mumble_pb2.CryptSetup: 15,
+        Mumble_pb2.ContextActionAdd: 16,
+        Mumble_pb2.ContextAction: 17,
+        Mumble_pb2.UserList: 18,
+        Mumble_pb2.VoiceTarget: 19,
 
-        Mumble_pb2.PermissionQuery:20,
-        Mumble_pb2.CodecVersion:21
+        Mumble_pb2.PermissionQuery: 20,
+        Mumble_pb2.CodecVersion: 21
     }
 
     _messageLookupNumber = {}
@@ -315,7 +315,7 @@ class mumbleConnection():
                 if msg[:5] == "play ":
                     msg_data = msg[5:].split(",")  # Split in case CSV
                     for item in msg_data:
-                        if http not in item:
+                        if "http" in item:
                             link = re.search(r"<a href=\"((?:http|https)://\S+)\"", item).group()
                             yt = re.search(r"v=([\w-]{11})", link)
                             try:
@@ -369,7 +369,7 @@ class mumbleConnection():
                     playlist = re.findall("^\|   \d+ - (?:(.+?) ?\((\d\d:\d\d:\d\d)\)?(?: \[played \d* times?])?|(https?://.+))\r",  telnetVLC("playlist"), re.MULTILINE)
                     i = 0
                     playlistmsg = "<br />"
-                    for title, length in playlist:
+                    for title, length, link in playlist:
                         i += 1
                         if title:
                             length = unicode("%d:%02d" % divmod(int(length[0:2]) * 3600 + int(length[3:5]) * 60 + int(length[6:8]), 60))
