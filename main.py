@@ -31,7 +31,7 @@ if __name__ == '__main__':
     #print("lol.")
     asdf = mumbleConnection.mumbleConnection(server, password, port, botname, channel, tokens, mastername)
     asdf.connectToServer()
-    asdf.addChatCallback(re.compile("(?:http|https)://"), lol)
+    asdf.addChatCallback(re.compile("."), lol)
     # this infinity loop is there for structural purposes, do not remove it!
     while asdf.running:
         pass

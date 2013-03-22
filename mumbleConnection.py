@@ -4,7 +4,7 @@ Created on Feb 6, 2012
 
 @author: johannes
 '''
-        
+
 import socket
 import ssl
 import platform
@@ -12,10 +12,15 @@ import Mumble_pb2
 import struct
 import time
 import thread
+import subprocess
 import sys
+import os
 import re
+import telnetlib
 import BeautifulSoup as bs
 import urllib2
+import requests
+import codecs
 import unicodedata
 import gdata.youtube
 import gdata.youtube.service
@@ -25,13 +30,17 @@ import PIL
 from PIL import Image
 import base64
 import cStringIO
+import HTMLParser
 from config import *
-
 
 yt_service = gdata.youtube.service.YouTubeService()
 r = praw.Reddit(user_agent='mumblebot by /u/underyx')
 r.login(reddituser, redditpass)
-fbconsole.ACCESS_TOKEN = fbtoken
+
+"""
+fbconsole.AUTH_SCOPE = ['offline_access']
+fbconsole.authenticate()
+"""
 
 def strip_accents(s): # Credit to oefe on stackoverflow.com
   if not s: return False
@@ -58,13 +67,27 @@ def getRedditTitle(link):
 
 def getFBTitle(photoid):
     try:
+        print "/%s" %photoid
         data = fbconsole.get("/%s" %photoid)
-    except:
+    except urllib2.HTTPError as e:
+        print e.read()
         return None
     try:
-        return data["name"], data["from"]["name"]
+        return data["name"], data["from"]["name"], data["link"]
     except:
-        return "Unnamed picture", data["from"]["name"]
+        return "Unnamed picture", data["from"]["name"], data["link"]
+        print "FB error #2"
+
+def telnetVLC(command):
+    try:
+        tn = telnetlib.Telnet("localhost", 4212)
+        tn.read_until("Password: ")
+        tn.write("admin\n")
+        tn.read_until(">")
+        tn.write(command + "\n")
+        return tn.read_until(">")
+    except:
+        pass
 
 class mumbleConnection():
     '''
@@ -80,7 +103,7 @@ class mumbleConnection():
     sock = None
     session = None
     channel = None
-    _pingTotal = 1   
+    _pingTotal = 1
     running = False
     _textCallbacks = []
     masterid = None
@@ -89,13 +112,13 @@ class mumbleConnection():
         Mumble_pb2.ChannelRemove:6, Mumble_pb2.ChannelState:7, Mumble_pb2.UserRemove:8, Mumble_pb2.UserState:9, Mumble_pb2.BanList:10, Mumble_pb2.TextMessage:11, Mumble_pb2.PermissionDenied:12,
         Mumble_pb2.ACL:13, Mumble_pb2.QueryUsers:14, Mumble_pb2.CryptSetup:15, Mumble_pb2.ContextActionAdd:16, Mumble_pb2.ContextAction:17, Mumble_pb2.UserList:18, Mumble_pb2.VoiceTarget:19,
         Mumble_pb2.PermissionQuery:20, Mumble_pb2.CodecVersion:21}
-    
+
     _messageLookupNumber = {}
-    
+
     def __init__(self, host, password, port, nickname, channel, tokens, mastername):
         """
         Creates a mumble Connection but doesn't open it yet.
-        
+
         @param host: Mumble server to connect to, as hostname or IP address
         @type host: String
         @param password: Server password, if the server doesn't have one, leave it empty or put in whatever you like to.
@@ -104,11 +127,11 @@ class mumbleConnection():
         @type port: String
         @param channel: Channel name the bot should join.
         @type channel: String
-        """            
+        """
         self.host = host
         self.password = password
         self.port = port
-        self.nickname = nickname    
+        self.nickname = nickname
         self.channel = channel
         self.tokens = tokens
         self.mastername = mastername
@@ -130,19 +153,19 @@ class mumbleConnection():
         message = msgClass()
         message.ParseFromString(stringMessage)
         return message
-    
+
     def addChatCallback(self, trigger, function):
         """
         Adds a function and a trigger for that function. Will execute the
         given function if the "Trigger" String occurs in channel tex".
-        
+
         @param trigger: Text trigger, currently NO regexp support
         @type trigger: String
         @param function: Function to be called, Strings it returns are written back to the channel.
-        @type function: Python Function  
+        @type function: Python Function
         """
-        self._textCallbacks.append((trigger, function))        
-    
+        self._textCallbacks.append((trigger, function))
+
     def _readTotally(self, size):
         message = ""
         while len(message) < size:
@@ -152,7 +175,7 @@ class mumbleConnection():
                 #print("Nothing received!")
                 return None
         return message
-        
+
     def _sendTotally(self, message):
         while len(message) > 0:
             sent = self.sock.send(message)
@@ -160,33 +183,33 @@ class mumbleConnection():
                 return False
             message = message[sent:]
         return True
-        
+
     def _packageMessageForSending(self, msgType, stringMessage):
         length = len(stringMessage)
         return struct.pack(">HI", msgType, length) + stringMessage
-        
+
     def connectToServer(self):
         """
         Really connects to the mumble server
         """
-        if self.sock == None: 
+        if self.sock == None:
             #
             # Guttenberg'd from eve-bot
             #
             self.sock = socket.socket(type=socket.SOCK_STREAM)
             self.sock = ssl.wrap_socket(self.sock, ssl_version=ssl.PROTOCOL_TLSv1)
             self.sock.setsockopt(socket.SOL_TCP, socket.TCP_NODELAY, 1)
-        
+
             self.sock.connect((self.host, self.port))
-        
+
             pbMess = Mumble_pb2.Version()
             pbMess.release = "1.2.0"
             pbMess.version = 66048
             pbMess.os = platform.system()
             pbMess.os_version = "mumblebot lol"
-            
+
             initialConnect = self._packageMessageForSending(self._messageLookupMessage[type(pbMess)], pbMess.SerializeToString())
-            
+
             pbMess = Mumble_pb2.Authenticate()
             pbMess.password = self.password
             pbMess.username = self.nickname
@@ -202,13 +225,13 @@ class mumbleConnection():
                 return
             else:
                 self.running = True
-                thread.start_new_thread(self._pingLoop, ()) 
+                thread.start_new_thread(self._pingLoop, ())
                 thread.start_new_thread(self._mainLoop, ())
-                
+
     def sendTextMessage(self, Text):
         """
         Send text message to channel
-        
+
         @param Text: Text that should be sent to channel
         @type Text: String
         """
@@ -226,34 +249,46 @@ class mumbleConnection():
 
 
     def _readPacket(self):
+        channels = {}
         meta = self._readTotally(6)
-            
-        
+        """
+        if c == ord("m"):
+            self.channel = raw_input()
+            if not self.channel:
+                followmode = 1
+            else:
+                followmode = 0
+                self.channel = channels[self.channel]
+                self._joinChannel()
+        """
         if(meta != None):
             msgType, length = struct.unpack(">HI", meta)
             stringMessage = self._readTotally(length)
             #print ("Message of type "+str(msgType)+" received!")
-            #print (stringMessage)   
- 
-            if(not self.session and msgType == 5):	
+            #print (stringMessage)
+
+            if(not self.session and msgType == 5):
                 message = self._parseMessage(msgType, stringMessage)
-                self.session = message.session 
+                self.session = message.session
                 self._joinChannel()
 
             if(msgType == 7):
                 message = self._parseMessage(msgType, stringMessage)
-                #print("Channel " + message.name + ": " + str(message.channel_id))
-                if(message.name == self.channel):
-                    self.channel = message.channel_id
+                channels[message.name] = message.channel_id
+                print("Channel " + codecs.encode(codecs.decode(message.name,'utf-32', 'replace'), 'utf-8') + ": " + str(message.channel_id))
+                if followmode:
+                    if(message.name == self.channel):
+                        self.channel = message.channel_id
 
             if(msgType == 9):
                 message = self._parseMessage(msgType, stringMessage)
-                if message.name == self.mastername:
-                    self.masterid = message.session
-                    self.channel = message.channel_id
-                if message.actor == self.masterid and message.channel_id != self.channel and message.channel_id:
-                    self.channel = message.channel_id
-                    self._joinChannel()
+                if followmode:
+                    if message.name == self.mastername:
+                        self.masterid = message.session
+                        self.channel = message.channel_id
+                    if message.actor == self.masterid and message.channel_id != self.channel and message.channel_id:
+                        self.channel = message.channel_id
+                        self._joinChannel()
 
             if(msgType == 11):
                 message = self._parseMessage(msgType, stringMessage)
@@ -265,41 +300,103 @@ class mumbleConnection():
                         try:
                             for link in links:
                                 print link
-                                image = re.search(r"\.(png|jpg)", link)
+                                link = HTMLParser.HTMLParser().unescape(link)
                                 message = ""
 
                                 yt = re.search(r"v=([\w-]{11})", link)
                                 fb = re.search(r"(facebook|fbcdn)", link)
 
+                                try:
+                                    file = cStringIO.StringIO(urllib2.urlopen(link).read())
+                                    img = Image.open(file)
+                                    basewidth = 350
+
+                                    if basewidth < img.size[0]:
+                                        wpercent = (basewidth / float(img.size[0]))
+                                        hsize = int((float(img.size[1]) * float(wpercent)))
+                                        img = img.resize((basewidth, hsize), PIL.Image.ANTIALIAS)
+                                    img.save('tmp.jpg', 'JPEG')
+                                    outimage = 'tmp.jpg'
+                                    self.sendTextMessage("<br /><img src=\"data:image/jpeg;base64, %s\"/>" % base64.encodestring(open(outimage, "rb").read()))
+                                    os.remove(outimage)
+                                except:
+                                    pass
+
                                 if yt:
                                     try:
                                         youtubedata = getYoutubeTitle(yt.group(1))
-                                        message += "<br /><b> %s [%s]</b>" %youtubedata
+                                        message += "<br /><b> %s [%s]</b>" % youtubedata
+                                        if "play" in msg:
+                                            info = subprocess.STARTUPINFO()
+                                            info.dwFlags = 1
+                                            info.wShowWindow = 0
+                                            subprocess.Popen(["C:\Program Files (x86)\VideoLAN\VLC\\vlc.exe", "--intf", "telnet", "--vout", "dummy", "--playlist-enqueue", "http://www.youtube.com/watch?v=%s" % yt.group(1)], startupinfo=info)
+                                            telnetVLC("next")
+                                            telnetVLC("play")
                                     except:
                                         message += "<br />You ain't foolin' this dog, mister."
                                 elif fb:
-                                    photoid = re.search(r"([\d]{15,17})", link)
+                                    photoid = re.search(r"\d+_(\d+)_\d+", link)
                                     print photoid
                                     fbdata = getFBTitle(photoid.group(1))
                                     if fbdata:
-                                        message += "<br /><b>%s</b> - posted by <b>%s</b>" %fbdata
+                                        message += "<br /><b>%s</b> - posted by <b>%s</b> - <a href=\"%s\">link to image on facebook</a>" % fbdata
+                                elif "mp3" in msg and "play" in msg:
+                                    print re.search('href="(.+)"', msg).group()
+                                    info = subprocess.STARTUPINFO()
+                                    info.dwFlags = 1
+                                    info.wShowWindow = 0
+                                    subprocess.Popen(["C:\Program Files (x86)\VideoLAN\VLC\\vlc.exe", "--intf", "telnet", "--vout", "dummy", "--playlist-enqueue", "%s" % re.search('href="(.+)"', msg).group(1)], startupinfo=info)
+                                    telnetVLC("next")
+                                    telnetVLC("play")
                                 else:
-                                    redditdata = getRedditTitle(link)
-                                    if redditdata:
-                                        message += "<br /><b>%s</b> - <a href=\"%s\">link to reddit submission<\a>" %redditdata
-                                if image:
-                                    file = cStringIO.StringIO(urllib2.urlopen(link).read())
-                                    img = Image.open(file)
-                                    basewidth = 300
-                                    wpercent = (basewidth / float(img.size[0]))
-                                    hsize = int((float(img.size[1]) * float(wpercent)))
-                                    img = img.resize((basewidth, hsize), PIL.Image.ANTIALIAS)
-                                    img.save('tmp.jpg', 'JPEG')
-                                    outimage = 'tmp.jpg'
-                                    message += "<br /><img src=\"data:image/jpeg;base64, %s\"/>" %base64.encodestring(open(outimage,"rb").read())
+                                    try:
+                                        redditdata = getRedditTitle(link)
+                                        print redditdata
+                                        if redditdata:
+                                            message += "<br /><b>%s</b> - <a href=\"%s\">link to reddit submission</a>" % redditdata
+                                    except:
+                                        pass
                                 self.sendTextMessage(message)
                         except:
+                            self.sendTextMessage(message)
                             pass
+                        if msg == "stop":
+                            os.system("taskkill /F /IM vlc.exe")
+                        if msg == "next":
+                            telnetVLC("next")
+                        if msg == "prev":
+                            telnetVLC("prev")
+                        if msg == "info":
+                            print type(telnetVLC("playlist"))
+                            playlist = re.findall("^\|   \d+ - (.+?) ?\((\d\d:\d\d:\d\d)\)?(?: \[played \d* times?])?\r",  telnetVLC("playlist"), re.MULTILINE)
+                            i = 1
+                            playlistmsg = "<br />"
+                            for title, length in playlist:
+                                length = "%d:%02d" % divmod(int(length[0:2]) * 3600 + int(length[3:5]) * 60 + int(length[6:8]), 60)
+                                playlistmsg += "#%s <b>%s - [%s]</b><br />" % (i, title, length)
+                                i += 1
+                            self.sendTextMessage(playlistmsg)
+                        if msg.startswith("seek"):
+                            telnetVLC("seek %s" % re.search("\d+", msg).group() + "%")
+                        if msg.startswith("vol"):
+                            telnetVLC("volume %s" % int(round(float(re.search("\d+", msg).group())*2.56)))
+                        if msg[:4] == "play" and "http" not in msg:
+                            try:
+                                params = {"vq": msg[5:], "racy": "include", "orderby": "relevance", "alt": "json", "fields": "entry(media:group(media:player))"}
+                                ytid = requests.get("http://gdata.youtube.com/feeds/api/videos", params=params).json()["feed"]["entry"][0]["media$group"]["media$player"][0]["url"][31:42]
+                                youtubedata = getYoutubeTitle(ytid)
+                                print youtubedata
+                                self.sendTextMessage("<br /><b> <a href='http://www.youtube.com/watch?v=%s'>%s</a> [%s]</b>" % (ytid, youtubedata[0], youtubedata[1]))
+                                info = subprocess.STARTUPINFO()
+                                info.dwFlags = 1
+                                info.wShowWindow = 0
+                                subprocess.Popen(["C:\Program Files (x86)\VideoLAN\VLC\\vlc.exe", "--intf", "telnet", "--vout", "dummy", "--playlist-enqueue", "http://www.youtube.com/watch?v=%s" % ytid], startupinfo=info)
+                                telnetVLC("next")
+                                telnetVLC("play")
+                            except:
+                                self.sendTextMessage("<br /><b>No results found or some other random error I dunno.</b>")
+                                pass
 
     def closeConnection(self):
         """
@@ -322,15 +419,15 @@ class mumbleConnection():
         pbMess.tcp_ping_avg = 50
         pbMess.tcp_ping_var = 50
         self._pingTotal += 1
-        packet = struct.pack(">HI", 3, pbMess.ByteSize()) + pbMess.SerializeToString()                
-            
+        packet = struct.pack(">HI", 3, pbMess.ByteSize()) + pbMess.SerializeToString()
+
         self.sock.send(packet)
 
     def _joinChannel(self):
         pbMess = Mumble_pb2.UserState()
         pbMess.session = self.session
-        
+
         pbMess.channel_id = self.channel
-         
+
         if not self._sendTotally(self._packageMessageForSending(self._messageLookupMessage[type(pbMess)], pbMess.SerializeToString())):
             print ("Error sending join packet")
