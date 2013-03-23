@@ -104,6 +104,14 @@ def telnetVLC(command):
         pass
 
 
+def playinVLC(input):
+    info = subprocess.STARTUPINFO()
+    info.dwFlags = 1
+    info.wShowWindow = 0
+    subprocess.Popen(["C:\Program Files (x86)\VideoLAN\VLC\\vlc.exe", "--intf", "telnet", "--vout", "dummy", "--playlist-enqueue", input], startupinfo=info)
+    telnetVLC("play")
+
+
 class mumbleConnection():
     '''
     This class represents a persistent connection to a mumble Server
@@ -316,6 +324,7 @@ class mumbleConnection():
             if(msgType == 11):
                 message = self._parseMessage(msgType, stringMessage)
                 msg = message.message
+                outmsg = ""
                 if msg[:5] == "play ":
                     msg_data = msg[5:].split(",")  # Split in case CSV
                     for item in msg_data:
@@ -326,36 +335,22 @@ class mumbleConnection():
                                 if yt:
                                     try:
                                         youtubedata = getYoutubeData(yt.group(1))
-                                        message += "<br /><b> %s [%s]</b>" % youtubedata
-                                        info = subprocess.STARTUPINFO()
-                                        info.dwFlags = 1
-                                        info.wShowWindow = 0
-                                        subprocess.Popen(["C:\Program Files (x86)\VideoLAN\VLC\\vlc.exe", "--intf", "telnet", "--vout", "dummy", "--playlist-enqueue", "http://www.youtube.com/watch?v=%s" % yt.group(1)], startupinfo=info)
-                                        telnetVLC("play")
+                                        outmsg += "<br /><b> %s [%s]</b>" % youtubedata
+                                        playinVLC("http://www.youtube.com/watch?v=" + yt.group(1))
                                     except Exception:
-                                        message += "<br />You ain't foolin' this dog, mister."
-                                elif "mp3" in item:
-                                    print re.search('href="(.+)"', item).group()
-                                    info = subprocess.STARTUPINFO()
-                                    info.dwFlags = 1
-                                    info.wShowWindow = 0
-                                    subprocess.Popen(["C:\Program Files (x86)\VideoLAN\VLC\\vlc.exe", "--intf", "telnet", "--vout", "dummy", "--playlist-enqueue", "%s" % re.search('href="(.+)"', item).group(1)], startupinfo=info)
-                                    telnetVLC("play")
-                                self.sendTextMessage(message)
+                                        outmsg += "<br />You ain't foolin' this dog, mister."
+                                elif re.search("(mp3|wav|ogg)", item):
+                                    playinVLC(re.search('href="(.+)"', item).group(1))
+                                self.sendTextMessage(outmsg)
                             except Exception:
-                                self.sendTextMessage(message)
+                                self.sendTextMessage(outmsg)
                         else:
                             try:
                                 params = {"vq": item, "racy": "include", "orderby": "relevance", "alt": "json", "fields": "entry(media:group(media:player))"}
                                 ytid = requests.get("http://gdata.youtube.com/feeds/api/videos", params=params).json()["feed"]["entry"][0]["media$group"]["media$player"][0]["url"][31:42]
                                 youtubedata = getYoutubeData(ytid)
-                                print youtubedata
                                 self.sendTextMessage("<br /><b> <a href='http://www.youtube.com/watch?v=%s'>%s</a> [%s]</b>" % (ytid, youtubedata[0], youtubedata[1]))
-                                info = subprocess.STARTUPINFO()
-                                info.dwFlags = 1
-                                info.wShowWindow = 0
-                                subprocess.Popen(["C:\Program Files (x86)\VideoLAN\VLC\\vlc.exe", "--intf", "telnet", "--vout", "dummy", "--playlist-enqueue", "http://www.youtube.com/watch?v=%s" % ytid], startupinfo=info)
-                                telnetVLC("play")
+                                playinVLC("http://www.youtube.com/watch?v=" + ytid)
                             except Exception:
                                 self.sendTextMessage("<br /><b>No results found or some other random error I dunno.</b>")
 
@@ -383,7 +378,7 @@ class mumbleConnection():
                     self.sendTextMessage(playlistmsg)
 
                 elif msg.startswith("seek"):
-                    telnetVLC("seek %s" % re.search("\d+", msg).group() + "%")
+                    telnetVLC("seek %s%%" % re.search("\d+", msg).group())
 
                 elif msg.startswith("vol"):
                     telnetVLC("volume %s" % int(round(float(re.search("\d+", msg).group())*2.56)))
