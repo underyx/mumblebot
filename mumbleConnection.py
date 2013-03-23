@@ -379,10 +379,6 @@ class mumbleConnection():
                         playlistmsg += "#%s <b>%s - [%s]</b><br />" % (i, title, length)
                     self.sendTextMessage(playlistmsg)
 
-                elif msg == "vol":
-                    outmsg = "<b>Current Volume:</b> " + str(int(float(telnetVLC("volume")[:-3]) / 2.56))
-                    self.sendTextMessage(outmsg)
-
                 elif msg.startswith("my "):
                     self.sendTextMessage("It looks good.")
 
@@ -390,8 +386,11 @@ class mumbleConnection():
                     telnetVLC("seek %s%%" % re.search("\d+", msg).group())
 
                 elif msg.startswith("vol"):
-                    if int(round(float(re.search("\d+", msg).group()))) > 100 and message.name != self.mastername:
-                        self.sendTextMessage("<b>NEM</b>")
+                    if not re.search("\d", msg):
+                        outmsg = "<b>Current Volume:</b> " + str(int(float(telnetVLC("volume")[:-3]) / 2.56))
+                        self.sendTextMessage(outmsg)
+                    elif int(round(float(re.search("\d+", msg).group()))) > 100 and message.name != self.mastername:
+                        self.sendTextMessage("<b>NOPE</b>")
                     else:
                         telnetVLC("volume %s" % int(round(float(re.search("\d+", msg).group())*2.56)))
 
