@@ -14,6 +14,7 @@ import time
 import thread
 import subprocess
 import sys
+import time
 import os
 import re
 import telnetlib
@@ -110,6 +111,8 @@ def playinVLC(input):
     info.wShowWindow = 0
     subprocess.Popen(["C:\Program Files (x86)\VideoLAN\VLC\\vlc.exe", "--intf", "telnet", "--vout", "dummy", "--playlist-enqueue", input], startupinfo=info)
     telnetVLC("play")
+    telnetVLC("volume 60")
+    telnetVLC("next")
 
 
 class mumbleConnection():
@@ -323,7 +326,7 @@ class mumbleConnection():
 
             if(msgType == 11):
                 message = self._parseMessage(msgType, stringMessage)
-                msg = message.message
+                msg = message.message.lower()
                 outmsg = ""
                 if msg[:5] == "play ":
                     msg_data = msg[5:].split(",")  # Split in case CSV
@@ -380,11 +383,17 @@ class mumbleConnection():
                     outmsg = "<b>Current Volume:</b> " + str(int(float(telnetVLC("volume")[:-3]) / 2.56))
                     self.sendTextMessage(outmsg)
 
+                elif msg.startswith("my "):
+                    self.sendTextMessage("It looks good.")
+
                 elif msg.startswith("seek"):
                     telnetVLC("seek %s%%" % re.search("\d+", msg).group())
 
                 elif msg.startswith("vol"):
-                    telnetVLC("volume %s" % int(round(float(re.search("\d+", msg).group())*2.56)))
+                    if int(round(float(re.search("\d+", msg).group()))) > 100 and message.name != self.mastername:
+                        self.sendTextMessage("<b>NEM</b>")
+                    else:
+                        telnetVLC("volume %s" % int(round(float(re.search("\d+", msg).group())*2.56)))
 
                 else:
                     links = re.findall(r"<a href=\"((?:http|https)://\S+)\"", msg)
