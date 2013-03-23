@@ -369,13 +369,16 @@ class mumbleConnection():
                     playlistmsg = "<br />"
                     for title, length, link in playlist:
                         i += 1
-                        print title, length, link
                         if title:
                             length = unicode("%d:%02d" % divmod(int(length[0:2]) * 3600 + int(length[3:5]) * 60 + int(length[6:8]), 60))
                         elif link:
                             title, length = parseQueueLink(link)
                         playlistmsg += "#%s <b>%s - [%s]</b><br />" % (i, title, length)
                     self.sendTextMessage(playlistmsg)
+
+                elif msg == "vol":
+                    outmsg = "<b>Current Volume:</b> " + str(int(float(telnetVLC("volume")[:-3]) / 2.56))
+                    self.sendTextMessage(outmsg)
 
                 elif msg.startswith("seek"):
                     telnetVLC("seek %s%%" % re.search("\d+", msg).group())
