@@ -30,7 +30,7 @@ class mumbleConnection():
 	'''
 
 	id = 0;
-	
+
 	host = None
 	port = None
 	password = None
@@ -43,8 +43,10 @@ class mumbleConnection():
 	_pingTotal = 1
 	running = False
 	masterid = None
-	
+	numUsers = 0
+
 	_onBotDieHandler = []
+	_onConnectionRefusedHandler = []
 
 	_messageLookupMessage = {
         Mumble_pb2.Version: 0,
@@ -98,10 +100,13 @@ class mumbleConnection():
 		self.nickname = nickname
 		self.channel = channel
 		self.tokens = tokens
+		self.numUsers = 0
 		self._onBotDieHandler = []
 
 		for i in self._messageLookupMessage.keys():
 			self._messageLookupNumber[self._messageLookupMessage[i]] = i
+
+		print("Bot#"+str(id)+ " Created")
 
 	def _pingLoop(self):
 		while(self.running):
@@ -155,53 +160,74 @@ class mumbleConnection():
 			print("Bot#"+str(self.id)+" Error" + str(e))
 			self.disconnect()
 			return False
-		
+
 	def _packageMessageForSending(self, msgType, stringMessage):
 		length = len(stringMessage)
 		return pack(">HI", msgType, length) + stringMessage
-		
+
 	def _close(self):
 		if not self.sock is None:
 			self.running = False
-			self.sock.shutdown(socket.SHUT_RDWR)
-			self.sock.close()
+			try:
+				self.sock.shutdown(socket.SHUT_RDWR)
+				self.sock.close()
+			except socket.error:
+				pass
 			self.sock = None
+			print("Bot#"+str(self.id)+" Disconnected")
 			self._handleBotDie()
-		
+
 	def disconnect(self):
 		self._close()
-		
+
 	def isRunning(self):
 		return self.running
-		
+
 	def _handleBotDie(self):
 		for i in self._onBotDieHandler:
-			i()
-		
+			i(self.id)
+
+	def _handleBotDie(self):
+		for i in self._onBotDieHandler:
+			i(self.id)
+
+	def _handleConnectionRefused(self):
+		for i in self._onConnectionRefusedHandler:
+			i(self.id)
+
 	def addBotDieHandler(self, func):
 		self._onBotDieHandler.append(func)
-		
+
+	def addConnectionRefusedHandler(self, func):
+		self._onConnectionRefusedHandler.append(func)
+
+	def getNumUsers(self):
+		return self.numUsers
+
 	def connectToServer(self):
 		"""
 		Really connects to the mumble server
 		"""
 		if self.sock is None:
-			#
-			# Guttenberg'd from eve-bot
-			#
 			try:
 				self.sock = socket.socket(type=socket.SOCK_STREAM)
 				self.sock = ssl.wrap_socket(self.sock, ssl_version=ssl.PROTOCOL_TLSv1)
 				self.sock.setsockopt(socket.SOL_TCP, socket.TCP_NODELAY, 1)
-				
+
 				self.sock.connect((self.host, self.port))
 			except ssl.SSLError as e:
 				print("Bot#"+str(self.id)+" SSLError: " + str(e))
 				self.disconnect()
+				self._handleConnectionRefused()
 				return
-				
+
 			except socket.timeout as e:
 				print("Bot#"+str(self.id)+" Timeout: " + str(e))
+				self.disconnect()
+				return
+
+			except socket.error as e:
+				print("Bot#"+str(self.id)+" Error: " + str(e))
 				self.disconnect()
 				return
 
@@ -248,14 +274,16 @@ class mumbleConnection():
 
 		if not self._sendTotally(packet):
 			print("couldnt't send text message, wtf?")
-			
+
 	def switchToChannel(self, new_channel):
+		if(self.channel_id == new_channel):
+			return
 		pbMess = Mumble_pb2.UserState()
 		pbMess.session = int(self.session)
 		pbMess.channel_id = int(new_channel)
 		pbMess.self_mute = True;
 		pbMess.self_deaf = True;
-		
+
 		packet = self._packageMessageForSending(self._messageLookupMessage[type(pbMess)], pbMess.SerializeToString())
 
 		if not self._sendTotally(packet):
@@ -269,19 +297,16 @@ class mumbleConnection():
 		if meta:
 			msgType, length = unpack(">HI", meta)
 			stringMessage = self._readTotally(length)
-			
-			
+
 			#if(msgType != 3 and msgType != 1):
 			#	print ("Message of type "+str(self._messageLookupNumber[msgType])+" (" + str(msgType) + ") received!")
-			
-				
+
 			if(not self.session and msgType == 5): # ServerSync
 				packet = self._parseMessage(msgType, stringMessage)
 				self.session = packet.session
-				print("Bot#"+str(self.id)+" session :" + str(packet.session))
 				self.switchToChannel(self.channel_id)
-				
-			if(msgType == 4): # ServerSync
+
+			if(msgType == 4): # Reject
 				packet = self._parseMessage(msgType, stringMessage)
 				print("Bot#"+str(self.id)+" rejected (" + str(packet.type) + ") : " + packet.reason)
 				self.disconnect();
@@ -293,14 +318,19 @@ class mumbleConnection():
 					self.channel_id = packet.channel_id
 					self.switchToChannel(packet.channel_id)
 					#print("Switching to channel_id " + str(packet.channel_id))
-					
+
+			if(msgType == 8): # UserRemove
+				packet = self._parseMessage(msgType, stringMessage)
+				self.numUsers -= 1;
+				#print("Bot#"+str(self.id)+" remove user total: " + str(self.numUsers))
+
 			if(msgType == 9): # UserState
 				packet = self._parseMessage(msgType, stringMessage)
-				if packet.name == self.nickname:
-					self.user_id = packet.user_id
+				self.numUsers += 1;
+				#print("Bot#"+str(self.id)+" found user : " + packet.name + ", total: " + str(self.numUsers))
 
-			if(msgType == 11): # TextMessage
-				packet = self._parseMessage(msgType, stringMessage)
+			#if(msgType == 11): # TextMessage
+				#packet = self._parseMessage(msgType, stringMessage)
 				#self.sendTextMessage('(parrot): '+packet.message)
 
 	def _sendPing(self):

@@ -9,6 +9,7 @@ class mumbleBot():
 	serverQuery = None
 	running = True
 	stopping = False
+	next_bot_id = 0
 	numBot = 0
 
 	server = None
@@ -17,10 +18,12 @@ class mumbleBot():
 	botname = None
 	channel = None
 	tokens = None
-	
+
 	target = 3
-	
-	_bots = []
+
+	waitTime = 30
+
+	_bots = {}
 
 	def __init__(self, server, password, port, botname, channel, tokens, target):
 		self.server = server
@@ -33,54 +36,85 @@ class mumbleBot():
 		self.numBot = 0
 		self.running = True
 		self.serverQuery = mumblePing.mumblePing(server, port)
-		
+
+		for bot_id in range(0, self.target):
+			self._bots[bot_id] = None
+
 	def runBot(self):
 		thread.start_new_thread(self._pingLoop, ())
-		
+
 	def stopBot(self):
 		self.stopping = True
-		self.depopMultipleBot(self.numBot)
+		for bot_id in range(0, self.target):
+			if (self._bots[bot_id] is not None):
+				if self._bots[bot_id].isRunning():
+					self._bots[bot_id].disconnect()
 		self.running = False
-		
-	def onBotDie(self):
-		self.numBot -= 1
+
+	def recountBots(self):
+		count = 0
+		self.next_bot_id = -1
+		for bot_id in range(0, self.target):
+			if (self._bots[bot_id] is not None):
+				if self._bots[bot_id].isRunning():
+					count += 1
+				else:
+					if(self.next_bot_id == -1):
+						self.next_bot_id = bot_id
+			else:
+				if(self.next_bot_id == -1):
+					self.next_bot_id = bot_id
+		self.numBot = count
+
+	def getNumUsers(self):
+		for bot_id in range(0, self.target):
+			if (self._bots[bot_id] is not None):
+				if self._bots[bot_id].isRunning():
+					return self._bots[bot_id].getNumUsers()
+		self.serverQuery._doPing()
+		return self.serverQuery.getNumUsers()
+
+	def onBotDie(self, bot_id):
+		if not self.stopping:
+			self.recountBots()
+
+	def onConnectionRefused(self, bot_id):
+		print("Extending waitTime to 320 seconds")
+		self.waitTime = 320
 
 	def _pingLoop(self):
 		while(self.running and not self.stopping):
-			self.serverQuery._doPing()
-			if(self.serverQuery.getNumUsers() < self.target):
-				self.popBot()
-				#reqbot = self.target - self.serverQuery.getNumUsers()
-				#self.popMultipleBot(reqbot)
-			else:
-				if(self.serverQuery.getNumUsers() > self.target):
-					self.depopBot()
-					#reqbot = self.serverQuery.getNumUsers() - self.target
-					#self.depopMultipleBot(reqbot)				
-				
-			time.sleep(20)
+			self.recountBots()
 
-	def popMultipleBot(self, num):
-		for x in range(0, num):
-			self.popBot()
-			time.sleep(2)
-		
+			if(self.getNumUsers() < self.target):
+				self.popBot()
+			else:
+				if(self.getNumUsers() > self.target):
+					self.depopBot()
+
+			time.sleep(self.waitTime)
+
 	def popBot(self):
+		if self.next_bot_id == -1:
+			print("Cannot create new bot, no space left")
+			return
 		bot = mumbleConnection.mumbleConnection(self.numBot, self.server, self.password, self.port, self.botname+str(self.numBot+1), self.channel, self.tokens)
-		self.numBot += 1
-		self._bots.append(bot)
 		bot.addBotDieHandler(self.onBotDie)
+		bot.addConnectionRefusedHandler(self.onConnectionRefused)
 		bot.connectToServer()
-	
-	def depopMultipleBot(self, num):
-		numBotCopy = self.numBot
-		for x in range(numBotCopy-num, numBotCopy):
-			self.depopBotbyId(x)
-		
+
+		if self.waitTime == 320:
+			self.waitTime = 15
+		else:
+			self.waitTime = 30
+
+		self._bots[self.next_bot_id] = bot
+		self.recountBots()
+
 	def depopBotbyId(self, id):
 		if(id >= 0 and id < self.numBot):
 			self._bots[id].disconnect()
-			
+		self.recountBots()
+
 	def depopBot(self):
 		self.depopBotbyId(self.numBot-1)
-		
