@@ -22,13 +22,14 @@ class mumbleBot():
 	
 	_bots = []
 
-	def __init__(self, server, password, port, botname, channel, tokens):
+	def __init__(self, server, password, port, botname, channel, tokens, target):
 		self.server = server
 		self.port = port
 		self.botname = botname
 		self.channel = channel
 		self.tokens = tokens
 		self.password = password
+		self.target = target
 		self.numBot = 0
 		self.running = True
 		self.serverQuery = mumblePing.mumblePing(server, port)

@@ -8,7 +8,7 @@ mumblebot = None
 
 if __name__ == '__main__':
 	print("Starting Mumble bot...")
-	mumblebot = mumbleBot.mumbleBot(server, password, port, botname, channel, tokens)
+	mumblebot = mumbleBot.mumbleBot(server, password, port, botname, channel, tokens, target)
 	#thread.start_new_thread(self._pingLoop, ())
 	
 	mumblebot.runBot()

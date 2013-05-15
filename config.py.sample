@@ -4,4 +4,5 @@ port = 64738
 password = "botpass"
 botname = "bot"
 channel = "Bot Channel"
+target = 5
 tokens = []
