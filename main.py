@@ -1,29 +1,28 @@
-# This Python file uses the following encoding: utf-8
+# -*- coding: utf-8
 
-'''
-Created on Feb 6, 2012
-
-@author: johannes
-'''
-
-import mumbleConnection
-import thread
-import time
-import re
+import mumbleBot
+import time, sys
 from config import *
 
-asdf = None
-tokens = [unicode(token, "utf-8") for token in tokens]
-print tokens
-
-def lol():
-    return "test"
+mumblebot = None
 
 if __name__ == '__main__':
-    #print("lol.")
-    asdf = mumbleConnection.mumbleConnection(server, password, port, botname, channel, tokens, mastername)
-    asdf.connectToServer()
-    asdf.addChatCallback(re.compile("."), lol)
-    # this infinity loop is there for structural purposes, do not remove it!
-    while asdf.running:
-        time.sleep(10)
+	print("Starting Mumble bot...")
+	mumblebot = mumbleBot.mumbleBot(server, password, port, botname, channel, tokens)
+	#thread.start_new_thread(self._pingLoop, ())
+	
+	mumblebot.runBot()
+	
+	options = {
+		0 : mumblebot.stopBot,
+		1 : mumblebot.popBot,
+		2 : mumblebot.depopBot,
+	}
+	while mumblebot.running:
+		try:
+			action = int(input(">"))
+			options[action]()
+		except (SyntaxError, ValueError, NameError, KeyError):
+			print("Error")
+		
+	
