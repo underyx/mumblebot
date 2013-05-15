@@ -14,29 +14,14 @@ import time
 import thread
 import subprocess
 import sys
+import re
 import time
 import os
-import re
-import telnetlib
-import BeautifulSoup as bs
-import urllib2
 import requests
 import codecs
 import unicodedata
-import gdata.youtube
-import gdata.youtube.service
-import praw
-import fbconsole
-import PIL
-from PIL import Image
-import base64
-import cStringIO
-import HTMLParser
 from config import *
 
-yt_service = gdata.youtube.service.YouTubeService()
-r = praw.Reddit(user_agent='mumblebot by /u/underyx')
-r.login(reddituser, redditpass)
 
 """
 fbconsole.AUTH_SCOPE = ['offline_access']
@@ -48,72 +33,6 @@ def strip_accents(s):  # Credit to oefe on stackoverflow.com
     if not s:
         return False
     return ''.join((c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn'))
-
-
-def getYoutubeData(videoid):
-    entry = yt_service.GetYouTubeVideoEntry(video_id=videoid)
-    title = entry.media.title.text
-    m, s = divmod(int(entry.media.duration.seconds), 60)
-    return strip_accents(unicode(title)), unicode("%d:%02d" % (m, s))
-
-
-def getRedditTitle(link):
-    try:
-        print link
-        print r.info(url=link)
-        print list(r.info(url=link))
-        result = next(r.info(url=link))
-    except StopIteration:
-        return None
-    cid = result.content_id[3:]
-    title = str(r.get_submission(submission_id=cid)).split(" :: ", 1)[1]
-    shortlink = "http://redd.it/" + cid
-    return title, shortlink
-
-
-def getFBTitle(photoid):
-    try:
-        print "/%s" % photoid
-        data = fbconsole.get("/%s" % photoid)
-    except urllib2.HTTPError as e:
-        print e.read()
-        return None
-    try:
-        return data["name"], data["from"]["name"], data["link"]
-    except Exception:
-        return "Unnamed picture", data["from"]["name"], data["link"]
-        print "FB error #2"
-
-
-def parseQueueLink(link):
-    ytid = re.search("v=([\w-]{11})", link)
-    if ytid:
-        result = getYoutubeData(ytid.group(1)) or ("Song name not found", "?:??")
-        print result
-        return result
-
-
-def telnetVLC(command):
-    try:
-        tn = telnetlib.Telnet("localhost", 4212)
-        tn.read_until("Password: ")
-        tn.write("admin\n")
-        tn.read_until(">")
-        tn.write(command + "\n")
-        return tn.read_until(">")
-    except Exception:
-        pass
-
-
-def playinVLC(input):
-    info = subprocess.STARTUPINFO()
-    info.dwFlags = 1
-    info.wShowWindow = 0
-    subprocess.Popen(["C:\Program Files (x86)\VideoLAN\VLC\\vlc.exe", "--intf", "telnet", "--vout", "dummy", "--playlist-enqueue", input], startupinfo=info)
-    telnetVLC("play")
-    telnetVLC("volume 60")
-    telnetVLC("next")
-
 
 class mumbleConnection():
     '''
@@ -327,93 +246,7 @@ class mumbleConnection():
             if(msgType == 11):
                 message = self._parseMessage(msgType, stringMessage)
                 msg = message.message.lower()
-                outmsg = ""
-                if msg[:5] == "play ":
-                    msg_data = msg[5:].split(",")  # Split in case CSV
-                    for item in msg_data:
-                        if "http" in item:
-                            link = re.search(r"<a href=\"((?:http|https)://\S+)\"", item).group()
-                            yt = re.search(r"v=([\w-]{11})", link)
-                            try:
-                                if yt:
-                                    try:
-                                        youtubedata = getYoutubeData(yt.group(1))
-                                        outmsg += "<br /><b> %s [%s]</b>" % youtubedata
-                                        playinVLC("http://www.youtube.com/watch?v=" + yt.group(1))
-                                    except Exception:
-                                        outmsg += "<br />You ain't foolin' this dog, mister."
-                                elif re.search("(mp3|wav|ogg)", item):
-                                    playinVLC(re.search('href="(.+)"', item).group(1))
-                                self.sendTextMessage(outmsg)
-                            except Exception:
-                                self.sendTextMessage(outmsg)
-                        else:
-                            try:
-                                params = {"vq": item, "racy": "include", "orderby": "relevance", "alt": "json", "fields": "entry(media:group(media:player))"}
-                                ytid = requests.get("http://gdata.youtube.com/feeds/api/videos", params=params).json()["feed"]["entry"][0]["media$group"]["media$player"][0]["url"][31:42]
-                                youtubedata = getYoutubeData(ytid)
-                                self.sendTextMessage("<br /><b> <a href='http://www.youtube.com/watch?v=%s'>%s</a> [%s]</b>" % (ytid, youtubedata[0], youtubedata[1]))
-                                playinVLC("http://www.youtube.com/watch?v=" + ytid)
-                            except Exception:
-                                self.sendTextMessage("<br /><b>No results found or some other random error I dunno.</b>")
-
-                elif msg == "stop":
-                    os.system("taskkill /F /IM vlc.exe")
-
-                elif msg == "next":
-                    telnetVLC("next")
-
-                elif msg == "prev":
-                    telnetVLC("prev")
-
-                elif msg == "info":
-                    playlist = re.findall("^\|   \d+ - (?:(.+?) ?\((\d\d:\d\d:\d\d)\)?(?: \[played \d* times?])?|(https?://.+))\r",  telnetVLC("playlist"), re.MULTILINE)
-                    i = 0
-                    playlistmsg = "<br />"
-                    for title, length, link in playlist:
-                        i += 1
-                        if title:
-                            length = unicode("%d:%02d" % divmod(int(length[0:2]) * 3600 + int(length[3:5]) * 60 + int(length[6:8]), 60))
-                        elif link:
-                            title, length = parseQueueLink(link)
-                        playlistmsg += "#%s <b>%s - [%s]</b><br />" % (i, title, length)
-                    self.sendTextMessage(playlistmsg)
-
-                elif msg.startswith("my "):
-                    self.sendTextMessage("It looks good.")
-
-                elif msg.startswith("seek"):
-                    telnetVLC("seek %s%%" % re.search("\d+", msg).group())
-
-                elif msg.startswith("vol"):
-                    if not re.search("\d", msg):
-                        outmsg = "<b>Current Volume:</b> " + str(int(float(telnetVLC("volume")[:-3]) / 2.56))
-                        self.sendTextMessage(outmsg)
-                    elif int(round(float(re.search("\d+", msg).group()))) > 100 and message.name != self.mastername:
-                        self.sendTextMessage("<b>NOPE</b>")
-                    else:
-                        telnetVLC("volume %s" % int(round(float(re.search("\d+", msg).group())*2.56)))
-
-                else:
-                    links = re.findall(r"<a href=\"((?:http|https)://\S+)\"", msg)
-                    for link in links:
-                        print link
-                        link = HTMLParser.HTMLParser().unescape(link)
-                        try:
-                            file = cStringIO.StringIO(urllib2.urlopen(link).read())
-                            img = Image.open(file)
-                            basewidth = 350
-
-                            if basewidth < img.size[0]:
-                                wpercent = (basewidth / float(img.size[0]))
-                                hsize = int((float(img.size[1]) * float(wpercent)))
-                                img = img.resize((basewidth, hsize), PIL.Image.ANTIALIAS)
-                            img.save('tmp.jpg', 'JPEG')
-                            outimage = 'tmp.jpg'
-                            self.sendTextMessage("<br /><img src=\"data:image/jpeg;base64, %s\"/>" % base64.encodestring(open(outimage, "rb").read()))
-                            os.remove(outimage)
-                        except Exception:
-                            pass
+                self.sendTextMessage('(parrot):'+msg)
 
     def _sendPing(self):
         pbMess = Mumble_pb2.Ping()

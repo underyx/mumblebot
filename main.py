@@ -10,15 +10,7 @@ import mumbleConnection
 import thread
 import time
 import re
-import win32api, win32process, win32con
 from config import *
-
-try:
-    pid = win32api.GetCurrentProcessId()
-    handle = win32api.OpenProcess(win32con.PROCESS_ALL_ACCESS, True, pid)
-    win32process.SetPriorityClass(handle, win32process.BELOW_NORMAL_PRIORITY_CLASS)
-except:
-    pass
 
 asdf = None
 tokens = [unicode(token, "utf-8") for token in tokens]
