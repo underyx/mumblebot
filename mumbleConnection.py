@@ -36,8 +36,9 @@ class mumbleConnection():
 	password = None
 	tokens = None
 	sock = None
+	nickname = None
 	session = 0
-	channel = None
+	targetChannel = None
 	channel_id = 0
 	user_id = 0
 	_pingTotal = 1
@@ -79,6 +80,9 @@ class mumbleConnection():
     
 
 	_messageLookupNumber = {}
+	
+	_knownUsers = []
+	_channels = {}
 
 	def __init__(self, id, host, password, port, nickname, channel, tokens):
 		"""
@@ -98,10 +102,13 @@ class mumbleConnection():
 		self.password = password
 		self.port = port
 		self.nickname = nickname
-		self.channel = channel
+		self.targetChannel = channel
 		self.tokens = tokens
 		self.numUsers = 0
 		self._onBotDieHandler = []
+		self._onConnectionRefusedHandler = []
+		self._knownUsers = []
+		self._channels = {}
 
 		for i in self._messageLookupMessage.keys():
 			self._messageLookupNumber[self._messageLookupMessage[i]] = i
@@ -177,12 +184,6 @@ class mumbleConnection():
 			print("Bot#"+str(self.id)+" Disconnected")
 			self._handleBotDie()
 
-	def disconnect(self):
-		self._close()
-
-	def isRunning(self):
-		return self.running
-
 	def _handleBotDie(self):
 		for i in self._onBotDieHandler:
 			i(self.id)
@@ -202,7 +203,7 @@ class mumbleConnection():
 		self._onConnectionRefusedHandler.append(func)
 
 	def getNumUsers(self):
-		return self.numUsers
+		return len(self._knownUsers)
 
 	def connectToServer(self):
 		"""
@@ -258,6 +259,18 @@ class mumbleConnection():
 				thread.start_new_thread(self._pingLoop, ())
 				thread.start_new_thread(self._mainLoop, ())
 
+	def disconnect(self):
+		self._close()
+
+	def isRunning(self):
+		return self.running
+
+	def getChannelIdByName(self, channel_name):
+		for id in self._channels:
+			if self._channels[id] == channel_name:
+				return id
+		return 0
+
 	def sendTextMessage(self, Text):
 		"""
 		Send text message to channel
@@ -276,8 +289,6 @@ class mumbleConnection():
 			print("couldnt't send text message, wtf?")
 
 	def switchToChannel(self, new_channel):
-		if(self.channel_id == new_channel):
-			return
 		pbMess = Mumble_pb2.UserState()
 		pbMess.session = int(self.session)
 		pbMess.channel_id = int(new_channel)
@@ -289,10 +300,11 @@ class mumbleConnection():
 		if not self._sendTotally(packet):
 			print("couldnt't send UserState")
 		else:
-			print("Bot#"+str(self.id)+" switched to channel#"+str(new_channel))
+			if self.channel_id != new_channel:
+				self.channel_id = new_channel
+				print("Bot#"+str(self.id)+" switched to channel#"+str(new_channel))
 
 	def _readPacket(self):
-		channels = {}
 		meta = self._readTotally(6)
 		if meta:
 			msgType, length = unpack(">HI", meta)
@@ -311,23 +323,35 @@ class mumbleConnection():
 				print("Bot#"+str(self.id)+" rejected (" + str(packet.type) + ") : " + packet.reason)
 				self.disconnect();
 
+			if(msgType == 6): # ChannelRemove
+				packet = self._parseMessage(msgType, stringMessage)
+				del self._channels[packet.channel_id]
+					#print("Switching to channel_id " + str(packet.channel_id))
+
 			if(msgType == 7): # ChannelState
 				packet = self._parseMessage(msgType, stringMessage)
-				channels[packet.name] = packet.channel_id
-				if packet.name == self.channel:
-					self.channel_id = packet.channel_id
+				self._channels[packet.channel_id] = packet.name
+				if packet.name == self.targetChannel:
 					self.switchToChannel(packet.channel_id)
 					#print("Switching to channel_id " + str(packet.channel_id))
 
 			if(msgType == 8): # UserRemove
 				packet = self._parseMessage(msgType, stringMessage)
-				self.numUsers -= 1;
+				
+				if packet.session not in self._knownUsers:
+					self._knownUsers.remove(packet.session)
+					self.numUsers -= 1;
 				#print("Bot#"+str(self.id)+" remove user total: " + str(self.numUsers))
 
 			if(msgType == 9): # UserState
 				packet = self._parseMessage(msgType, stringMessage)
-				self.numUsers += 1;
-				#print("Bot#"+str(self.id)+" found user : " + packet.name + ", total: " + str(self.numUsers))
+				if packet.session not in self._knownUsers:
+					self._knownUsers.append(packet.session)
+					self.numUsers += 1;
+				if packet.session == self.session:
+					self.channel_id == packet.channel_id
+					print("Bot#"+str(self.id)+" is in channel#" + str(packet.channel_id))
+					self.switchToChannel(getChannelIdByName(self.targetChannel))
 
 			#if(msgType == 11): # TextMessage
 				#packet = self._parseMessage(msgType, stringMessage)
