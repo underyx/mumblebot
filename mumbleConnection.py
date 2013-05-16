@@ -239,8 +239,8 @@ class mumbleConnection():
 
 
 			pbMess = Mumble_pb2.Version()
-			pbMess.release = "1.2.1"
-			pbMess.version = 66050
+			pbMess.release = "1.0"
+			pbMess.version = 1
 			pbMess.os = platform.system()
 			pbMess.os_version = "Mumblebot"
 
@@ -260,6 +260,7 @@ class mumbleConnection():
 				self.disconnect()
 				return
 			else:
+				self._handleBotConnect()
 				self.running = True
 				thread.start_new_thread(self._pingLoop, ())
 				thread.start_new_thread(self._mainLoop, ())
@@ -298,10 +299,10 @@ class mumbleConnection():
 			return
 			
 		pbMess = Mumble_pb2.UserState()
-		pbMess.session = int(self.session)
-		pbMess.channel_id = int(new_channel)
-		pbMess.self_mute = True;
-		pbMess.self_deaf = True;
+		pbMess.session = self.session
+		pbMess.channel_id = new_channel
+		pbMess.self_mute = True
+		pbMess.self_deaf = True
 
 		packet = self._packageMessageForSending(self._messageLookupMessage[type(pbMess)], pbMess.SerializeToString())
 
@@ -310,7 +311,7 @@ class mumbleConnection():
 		else:
 			if self.channel_id != new_channel:
 				self.channel_id = new_channel
-				print("Bot#"+str(self.id)+" switched to channel#"+str(new_channel))
+				print("Bot#"+str(self.id)+" switched to channel#"+str(new_channel) + " (" + self._channels[new_channel] + ")")
 
 	def _readPacket(self):
 		meta = self._readTotally(6)
@@ -325,9 +326,12 @@ class mumbleConnection():
 
 			if(msgType == 5): # ServerSync
 				packet = self._parseMessage(msgType, stringMessage)
-				self.session = packet.session
-				print("Bot#"+str(self.id)+" session: " + str(packet.session))
-				self.switchToChannel(self.getChannelIdByName(self.targetChannel))
+				if self.session == 0:
+					self.session = packet.session
+					print("Bot#"+str(self.id)+" session: " + str(packet.session))
+					self.switchToChannel(self.getChannelIdByName(self.targetChannel))
+				#else:
+					#self._sendMutePacket()
 
 			if(msgType == 4): # Reject
 				packet = self._parseMessage(msgType, stringMessage)
@@ -342,14 +346,11 @@ class mumbleConnection():
 			if(msgType == 7): # ChannelState
 				packet = self._parseMessage(msgType, stringMessage)
 				self._channels[packet.channel_id] = packet.name
-				if packet.name == self.targetChannel:
-					self.switchToChannel(packet.channel_id)
 					#print("Switching to channel_id " + str(packet.channel_id))
 
 			if(msgType == 8): # UserRemove
 				packet = self._parseMessage(msgType, stringMessage)
-				
-				if packet.session not in self._knownUsers:
+				if packet.session in self._knownUsers:
 					self._knownUsers.remove(packet.session)
 					self.numUsers -= 1;
 				#print("Bot#"+str(self.id)+" remove user total: " + str(self.numUsers))
@@ -359,10 +360,15 @@ class mumbleConnection():
 				if packet.session not in self._knownUsers:
 					self._knownUsers.append(packet.session)
 					self.numUsers += 1;
-				if packet.session == self.session:
-					self.channel_id == packet.channel_id
-					print("Bot#"+str(self.id)+" is in channel#" + str(packet.channel_id))
-					self.switchToChannel(self.getChannelIdByName(self.targetChannel))
+				if packet.session == self.session or packet.name == self.nickname:
+					self.session = packet.session
+					self.channel_id = packet.channel_id
+					print("Bot#"+str(self.id)+" session by UserState: " + str(packet.session))
+					print("Bot#"+str(self.id)+" is in channel#"+str(packet.channel_id) + " (" + self._channels[packet.channel_id] + ")")
+					targetChannelId = self.getChannelIdByName(self.targetChannel)
+					if targetChannelId != self.channel_id:
+						print("Bot#"+str(self.id)+" is in wrong channel, moving to channel#"+str(targetChannelId) + " (" + self.targetChannel + ")")
+						self.switchToChannel(targetChannelId)
 
 			#if(msgType == 11): # TextMessage
 				#packet = self._parseMessage(msgType, stringMessage)
@@ -374,6 +380,18 @@ class mumbleConnection():
 				self.disconnect()
 				self._handleConnectionRefused()
 
+	def _sendMutePacket(self):
+		if self.session == 0:
+			return
+		mutePacket = Mumble_pb2.UserState()
+		mutePacket.session = self.session
+		mutePacket.self_mute = True
+		mutePacket.self_deaf = True
+		packet = self._packageMessageForSending(self._messageLookupMessage[type(mutePacket)], mutePacket.SerializeToString())
+
+		if not self._sendTotally(packet):
+			print("couldnt't send UserState")
+		
 	def _sendPing(self):
 		pbMess = Mumble_pb2.Ping()
 		"""pbMess.timestamp = (self._pingTotal * 5000000)
