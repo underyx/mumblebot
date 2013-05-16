@@ -77,6 +77,9 @@ class mumbleBot():
 	def onBotDie(self, bot_id):
 		if not self.stopping:
 			self.recountBots()
+			
+	def onBotConnect(self, bot_id):
+		self.waitTime = 30
 
 	def onConnectionRefused(self, bot_id):
 		print("Extending waitTime to 320 seconds")
@@ -100,14 +103,10 @@ class mumbleBot():
 			return
 		bot = mumbleConnection.mumbleConnection(self.numBot, self.server, self.password, self.port, self.botname+str(self.numBot+1), self.channel, self.tokens)
 		bot.addBotDieHandler(self.onBotDie)
+		bot.addBotConnectHandler(self.onBotConnect)
 		bot.addConnectionRefusedHandler(self.onConnectionRefused)
 		bot.connectToServer()
-
-		if self.waitTime == 320:
-			self.waitTime = 15
-		else:
-			self.waitTime = 30
-
+		
 		self._bots[self.next_bot_id] = bot
 		self.recountBots()
 

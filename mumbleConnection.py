@@ -47,6 +47,7 @@ class mumbleConnection():
 	numUsers = 0
 
 	_onBotDieHandler = []
+	_onBotConnectHandler = []
 	_onConnectionRefusedHandler = []
 
 	_messageLookupMessage = {
@@ -105,6 +106,7 @@ class mumbleConnection():
 		self.targetChannel = channel
 		self.tokens = tokens
 		self.numUsers = 0
+		self._onBotConnectHandler = []
 		self._onBotDieHandler = []
 		self._onConnectionRefusedHandler = []
 		self._knownUsers = []
@@ -188,8 +190,8 @@ class mumbleConnection():
 		for i in self._onBotDieHandler:
 			i(self.id)
 
-	def _handleBotDie(self):
-		for i in self._onBotDieHandler:
+	def _handleBotConnect(self):
+		for i in self._onBotConnectHandler:
 			i(self.id)
 
 	def _handleConnectionRefused(self):
@@ -198,6 +200,9 @@ class mumbleConnection():
 
 	def addBotDieHandler(self, func):
 		self._onBotDieHandler.append(func)
+		
+	def addBotConnectHandler(self, func):
+		self._onBotConnectHandler.append(func)
 
 	def addConnectionRefusedHandler(self, func):
 		self._onConnectionRefusedHandler.append(func)
@@ -289,6 +294,9 @@ class mumbleConnection():
 			print("couldnt't send text message, wtf?")
 
 	def switchToChannel(self, new_channel):
+		if self.session == 0:
+			return
+			
 		pbMess = Mumble_pb2.UserState()
 		pbMess.session = int(self.session)
 		pbMess.channel_id = int(new_channel)
@@ -310,13 +318,16 @@ class mumbleConnection():
 			msgType, length = unpack(">HI", meta)
 			stringMessage = self._readTotally(length)
 
-			#if(msgType != 3 and msgType != 1):
-			#	print ("Message of type "+str(self._messageLookupNumber[msgType])+" (" + str(msgType) + ") received!")
+			""""
+			if(msgType != 3 and msgType != 1):
+				print ("Bot#"+str(self.id)+" Message of type "+str(self._messageLookupNumber[msgType])+" (" + str(msgType) + ") received!")
+			"""
 
-			if(not self.session and msgType == 5): # ServerSync
+			if(msgType == 5): # ServerSync
 				packet = self._parseMessage(msgType, stringMessage)
 				self.session = packet.session
-				self.switchToChannel(self.channel_id)
+				print("Bot#"+str(self.id)+" session: " + str(packet.session))
+				self.switchToChannel(self.getChannelIdByName(self.targetChannel))
 
 			if(msgType == 4): # Reject
 				packet = self._parseMessage(msgType, stringMessage)
@@ -351,11 +362,17 @@ class mumbleConnection():
 				if packet.session == self.session:
 					self.channel_id == packet.channel_id
 					print("Bot#"+str(self.id)+" is in channel#" + str(packet.channel_id))
-					self.switchToChannel(getChannelIdByName(self.targetChannel))
+					self.switchToChannel(self.getChannelIdByName(self.targetChannel))
 
 			#if(msgType == 11): # TextMessage
 				#packet = self._parseMessage(msgType, stringMessage)
 				#self.sendTextMessage('(parrot): '+packet.message)
+				
+			if(msgType == 12): # PermissionDenied
+				packet = self._parseMessage(msgType, stringMessage)
+				print("Bot#"+str(self.id)+" PermissionDenied (" + str(packet.type) + ") : " + packet.reason)
+				self.disconnect()
+				self._handleConnectionRefused()
 
 	def _sendPing(self):
 		pbMess = Mumble_pb2.Ping()
