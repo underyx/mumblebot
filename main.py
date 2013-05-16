@@ -31,7 +31,7 @@ if __name__ == '__main__':
 		except (SyntaxError, ValueError, NameError, KeyError):
 			print("Error")
 		except KeyboardInterrupt:
-			self.mumblebot.stopBot();
+			mumblebot.stopBot();
 		else:
 			if options.has_key(action):
 				options[action]()
