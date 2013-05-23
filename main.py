@@ -20,15 +20,13 @@ if __name__ == '__main__':
 
 	options = {
 		0 : mumblebot.stopBot,
-		1 : mumblebot.popBot,
-		2 : mumblebot.depopBot,
 		3 : print_numUsers,
 		4 : print_waitTime
 	}
 	while mumblebot.running:
 		try:
 			action = int(input(""))
-		except (SyntaxError, ValueError, NameError, KeyError):
+		except (SyntaxError, ValueError, NameError):
 			print("Error")
 		except KeyboardInterrupt:
 			mumblebot.stopBot();
